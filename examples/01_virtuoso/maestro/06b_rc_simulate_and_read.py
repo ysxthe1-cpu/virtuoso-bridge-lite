@@ -83,7 +83,7 @@ def main() -> int:
         # 3. Read structured results (per point × per output, with spec/pass).
         print("\n=== Results ===")
         results = read_results(client, session, lib=lib, cell=cell)
-        history_name = results.get("history", "") or ""
+        history_name = results.get("history", "") or str(history).strip().strip('"')
         print(f"History: {history_name}")
         for pt in results.get("points", []):
             pn = pt.get("point", "?")

@@ -29,12 +29,13 @@ just like a stdcell or an analogLib master.
 
 Usage::
 
+    python import_veriloga.py <LIB> <CELL> <local-.va-file>
     python import_veriloga.py <LIB> <CELL> <local-.va-file> \\
-                              --inputs IN1 IN2 \\
-                              --outputs OUT1
+                              --inputs IN1 IN2 --outputs OUT1
 
-Pin direction is taken from the CLI flags; the ``.va`` declarations
-must agree (Cadence cross-checks).  ``--inout`` also accepted.
+Pin direction is parsed from the ``.va`` file by default.  CLI flags
+override the parsed ports; when used, the ``.va`` declarations must
+agree (Cadence cross-checks).  ``--inout`` also accepted.
 
 Example::
 
@@ -56,6 +57,7 @@ IC release dependency:
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 import tempfile
 from datetime import datetime
@@ -71,6 +73,63 @@ from virtuoso_bridge.virtuoso.schematic.ops import schematic_create_pin
 # major versions; current values are correct on IC618 SP201.
 _SCHEMA_TO_PINLIST = "schSymbolToPinList"
 _PINLIST_TO_VERILOGA = "ahdlPinListToveriloga"
+
+_DECL_KEYWORDS = {
+    "electrical",
+    "ground",
+    "supply0",
+    "supply1",
+    "tri",
+    "wire",
+    "wreal",
+    "reg",
+    "logic",
+    "signed",
+    "unsigned",
+}
+
+
+def _strip_veriloga_comments(text: str) -> str:
+    text = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
+    return re.sub(r"//.*", "", text)
+
+
+def _split_verilog_names(text: str) -> list[str]:
+    names: list[str] = []
+    for part in text.split(","):
+        part = re.sub(r"\[[^\]]+\]", " ", part)
+        part = part.split("=", 1)[0]
+        tokens = re.findall(r"[A-Za-z_][A-Za-z0-9_$]*", part)
+        candidates = [tok for tok in tokens if tok not in _DECL_KEYWORDS]
+        if candidates:
+            names.append(candidates[-1])
+    return names
+
+
+def _parse_veriloga_ports(va_file: Path) -> tuple[list[str], list[str], list[str]]:
+    text = _strip_veriloga_comments(va_file.read_text(encoding="utf-8"))
+    module_match = re.search(
+        r"\bmodule\s+[A-Za-z_][A-Za-z0-9_$]*\s*\((.*?)\)\s*;",
+        text,
+        flags=re.DOTALL,
+    )
+    module_ports = _split_verilog_names(module_match.group(1)) if module_match else []
+
+    by_direction: dict[str, set[str]] = {"input": set(), "output": set(), "inout": set()}
+    declared_order: dict[str, list[str]] = {"input": [], "output": [], "inout": []}
+    for match in re.finditer(r"\b(input|output|inout)\b([^;]*);", text, flags=re.DOTALL):
+        direction = match.group(1)
+        for name in _split_verilog_names(match.group(2)):
+            if name not in by_direction[direction]:
+                by_direction[direction].add(name)
+                declared_order[direction].append(name)
+
+    def ordered(direction: str) -> list[str]:
+        if module_ports:
+            return [name for name in module_ports if name in by_direction[direction]]
+        return declared_order[direction]
+
+    return ordered("input"), ordered("output"), ordered("inout")
 
 
 def _build_placeholder_schematic(
@@ -91,11 +150,11 @@ def _build_placeholder_schematic(
     """
     with client.schematic.edit(lib, cell) as sch:
         for i, name in enumerate(inputs):
-            sch.add(schematic_create_pin(name, 0.0, -i * 1.0, direction="input"))
+            sch.add(schematic_create_pin(name, 0.0, -i * 1.0, "R0", direction="input"))
         for i, name in enumerate(outputs):
-            sch.add(schematic_create_pin(name, 4.0, -i * 1.0, direction="output"))
+            sch.add(schematic_create_pin(name, 4.0, -i * 1.0, "R180", direction="output"))
         for i, name in enumerate(inouts):
-            sch.add(schematic_create_pin(name, 2.0, -i * 1.0, direction="inputOutput"))
+            sch.add(schematic_create_pin(name, 2.0, -i * 1.0, "R0", direction="inputOutput"))
 
 
 def _generate_symbol(client: VirtuosoClient, lib: str, cell: str) -> None:
@@ -114,7 +173,7 @@ def _generate_veriloga_skeleton(
 ) -> None:
     """Drops a stub ``veriloga.va`` under ``<lib>/<cell>/veriloga/``."""
     r = client.execute_skill(
-        f'schViewToView("{lib}" "{cell}" nil nil "symbol" "veriloga" '
+        f'schViewToView("{lib}" "{cell}" "{lib}" "{cell}" "symbol" "veriloga" '
         f'"{_SCHEMA_TO_PINLIST}" "{_PINLIST_TO_VERILOGA}")'
     )
     if r.errors or not r.output or r.output.strip() in ("nil", ""):
@@ -139,7 +198,7 @@ def _overwrite_veriloga(
 
 def _reparse(client: VirtuosoClient, lib: str, cell: str) -> None:
     r = client.execute_skill(
-        f'ahdlUpdateViewInfo(?lib "{lib}" ?cell "{cell}" ?view "veriloga")'
+        f'ahdlUpdateViewInfo("{lib}" ?cell "{cell}" ?view "veriloga")'
     )
     if r.errors:
         raise RuntimeError(f"ahdlUpdateViewInfo failed: {r.errors[0]}")
@@ -160,26 +219,31 @@ def main() -> int:
     p.add_argument("cell", help="target cell name (created if absent)")
     p.add_argument("va_file", type=Path, help="local .va file to import")
     p.add_argument(
-        "--inputs", nargs="*", default=[], help="input port names (in order)"
+        "--inputs", nargs="*", default=None, help="override input port names"
     )
     p.add_argument(
-        "--outputs", nargs="*", default=[], help="output port names (in order)"
+        "--outputs", nargs="*", default=None, help="override output port names"
     )
     p.add_argument(
         "--inout",
         "--inouts",
         nargs="*",
-        default=[],
+        default=None,
         dest="inouts",
-        help="inout port names (in order)",
+        help="override inout port names",
     )
     args = p.parse_args()
 
     if not args.va_file.exists():
         print(f"error: .va file not found: {args.va_file}", file=sys.stderr)
         return 1
-    if not (args.inputs or args.outputs or args.inouts):
-        print("error: at least one of --inputs/--outputs/--inout required",
+    parsed_inputs, parsed_outputs, parsed_inouts = _parse_veriloga_ports(args.va_file)
+    inputs = args.inputs if args.inputs is not None else parsed_inputs
+    outputs = args.outputs if args.outputs is not None else parsed_outputs
+    inouts = args.inouts if args.inouts is not None else parsed_inouts
+
+    if not (inputs or outputs or inouts):
+        print("error: could not parse ports from .va; pass --inputs/--outputs/--inout",
               file=sys.stderr)
         return 1
 
@@ -188,7 +252,7 @@ def main() -> int:
     print(f"[1/5] placeholder schematic — {args.lib}/{args.cell}")
     _build_placeholder_schematic(
         client, args.lib, args.cell,
-        args.inputs, args.outputs, args.inouts,
+        inputs, outputs, inouts,
     )
 
     print(f"[2/5] symbol via schPinListToSymbol")

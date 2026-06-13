@@ -17,7 +17,7 @@ module adc_ideal_4b (
 
     integer code;
     real    vstep, v_in, v_supply, vth;
-    genvar  k;
+    real    dout0_target, dout1_target, dout2_target, dout3_target;
 
     analog begin
         @(initial_step)
@@ -40,12 +40,20 @@ module adc_ideal_4b (
             $strobe("\n[adc_ideal_4b] t=%.3f ns | vin=%g | code=%d", $abstime*1e9, v_in, code);
         end
 
-        for (k = 0; k < 4; k = k + 1) begin
-            if ((code >> k) & 1)
-                V(dout[k]) <+ transition(V(vdd));
-            else
-                V(dout[k]) <+ transition(V(vss));
-        end
+        dout0_target = V(vss);
+        dout1_target = V(vss);
+        dout2_target = V(vss);
+        dout3_target = V(vss);
+
+        if ((code >> 0) & 1) dout0_target = V(vdd);
+        if ((code >> 1) & 1) dout1_target = V(vdd);
+        if ((code >> 2) & 1) dout2_target = V(vdd);
+        if ((code >> 3) & 1) dout3_target = V(vdd);
+
+        V(dout[0]) <+ transition(dout0_target);
+        V(dout[1]) <+ transition(dout1_target);
+        V(dout[2]) <+ transition(dout2_target);
+        V(dout[3]) <+ transition(dout3_target);
     end
 
 endmodule

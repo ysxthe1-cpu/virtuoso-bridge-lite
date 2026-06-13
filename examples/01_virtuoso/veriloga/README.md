@@ -40,7 +40,9 @@ python import_veriloga.py <LIB> <CELL> <local-.va> \
     --inout INOUT1
 ```
 
-Pin direction comes from the CLI flags; the .va must agree
+Pin direction is parsed from the `.va` file by default.  The CLI flags
+are optional overrides for unusual files or for forcing symbol pin
+directions.  When override flags are used, the `.va` must agree
 (Cadence cross-checks during reparse).  Use `--inout` for terminals
 that should appear bidirectional on the symbol.
 
@@ -48,6 +50,20 @@ Quick smoke test with the bundled sample:
 
 ```bash
 python import_veriloga.py PLAYGROUND_LLM sample sample.va --inout in out
+```
+
+For a conventional Verilog-A module such as:
+
+```verilog
+module dff_va(d, clk, r, q, qb);
+    input d, clk, r;
+    output q, qb;
+```
+
+the import command can omit pin flags:
+
+```bash
+python import_veriloga.py PLAYGROUND_LLM dff_va tmp/dff_va.va
 ```
 
 ## Why this is a recipe, not a `client.create_veriloga_cell()` helper

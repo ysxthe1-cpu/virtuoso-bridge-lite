@@ -40,7 +40,7 @@ def main() -> int:
 
     sim = SpectreSimulator.from_env(
         spectre_cmd=os.getenv("SPECTRE_CMD", "spectre"),
-        spectre_args=spectre_mode_args("ax"),
+        spectre_args=spectre_mode_args("aps"),
         work_dir=OUT_DIR,
         output_format="psfascii",
     )
@@ -71,7 +71,7 @@ def main() -> int:
 
     if freq and vo_mag and len(freq) > 1:
         # Convert to dB (relative to DC gain = 1.0)
-        vo_db = [20 * math.log10(max(v, 1e-30)) for v in vo_mag]
+        vo_db = [20 * math.log10(max(abs(v), 1e-30)) for v in vo_mag]
 
         # Find -3dB frequency
         f_3dB = None
@@ -116,10 +116,14 @@ def main() -> int:
 
 
 def _write_plot(freq: list[float], vo_db: list[float], f_3dB: float | None, out_path: Path) -> None:
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-    import numpy as np
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        import numpy as np
+    except ImportError as exc:
+        print(f"\nPlot skipped: {exc.name} is not installed")
+        return
 
     freq_ghz = np.array(freq) / 1e9
 
