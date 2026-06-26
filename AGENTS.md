@@ -222,6 +222,16 @@ They are fully independent — you can run Spectre without loading the SKILL bri
 [spectre] OK               ← spectre found on remote (or NOT FOUND)
 ```
 
+## Spectre simulation rules
+
+- Before running Spectre examples, check:
+  - virtuoso-bridge status
+  - ssh eda-vnc-bot "whoami; which spectre; spectre -W"
+- Do not use `+preset=ax` unless `spectre -help` confirms it is supported.
+- If a Spectre run fails, capture the full command line, netlist path, log file, and exact error message.
+- Do not modify source files under the bridge repo unless explicitly approved.
+
+
 ### How Spectre is located
 
 Each SSH command runs in a **fresh shell** with no prior state. To find `spectre`, the bridge:
