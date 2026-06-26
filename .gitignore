@@ -5,3 +5,19 @@ sanity_rawout.dat
 sanity_signals.npz
 pvt_run_summary.json
 get-pip.py
+
+# Python build/cache
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# Local bridge/example outputs
+output/
+tmp/
+
+# More specific local outputs
+examples/01_virtuoso/basic/output/
+examples/01_virtuoso/maestro/output/
+examples/02_spectre/output/
+src/virtuoso_bridge.egg-info/
